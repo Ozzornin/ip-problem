@@ -15,6 +15,8 @@ import {
   re,
   to,
   format,
+  isInteger,
+  floor,
 } from "mathjs";
 import { Table } from "./table";
 
@@ -116,7 +118,7 @@ export class SimplexMethod {
     );
   }
 
-  public solve(): [Vector | null, Fraction | null] {
+  public solve(): [Table[] | null] {
     // Phase 1: Remove artificial variables
     this._phase_one();
 
@@ -124,10 +126,13 @@ export class SimplexMethod {
     if (this._check_artificial_vars_out()) {
       // Phase 2: Solve the original problem
       this._phase_two();
-      return [[], fraction(0)];
+      if (!this.chech_if_result_is_integer()) {
+        this._phase_three();
+      }
+      return [this._tables];
     } else {
       console.log("No feasible solution.");
-      return [null, null];
+      return [null];
     }
   }
 
@@ -170,13 +175,13 @@ export class SimplexMethod {
         this.table.delta.splice(i, 1);
       }
 
-      for (let i = 0; i < this.table.c.length; i++) {
+      for (const element of this.table.c) {
         for (let j = 0; j < this.table.basis.length; j++) {
           if (
             (this.table.basis[j].name as FractionNum) ==
-            (this.table.c[i].name as FractionNum)
+            (element.name as FractionNum)
           ) {
-            this.table.basis[j] = this.table.c[i];
+            this.table.basis[j] = element;
           }
         }
       }
@@ -184,6 +189,69 @@ export class SimplexMethod {
     while (!this.is_optimal()) this._tables.push(this.table.solve(true));
 
     this.get_solution();
+  }
+
+  private _phase_three() {
+    const constraint: Fraction[] = [];
+    let index = 0;
+    for (let i = 0; i < this.table.basis.length; i++) {
+      if (
+        this.table.basis[i].type == VarType.Regular &&
+        !isInteger(number(this.table.b[i]))
+      ) {
+        index = i;
+        break;
+      }
+    }
+
+    constraint.push(
+      ...this.table.A[index].map((val) => {
+        let frac = fraction(subtract(val, floor(val)));
+        frac.s = -1;
+        return frac;
+      })
+    );
+    const numOfSlack = this.table.basis.filter(
+      (val) => val.type == VarType.Slack
+    ).length;
+    const newSlack = new FractionNum(
+      VarType.Slack,
+      fraction(1),
+      `s${numOfSlack + 1}`
+    );
+
+    let basis = fraction(
+      subtract(this.table.b[index], floor(this.table.b[index]))
+    );
+    basis.s = -1;
+    this.table.b.push(basis);
+    this.table.basis.push(newSlack);
+    this.table.c.push(newSlack);
+    this.table.delta.push(fraction(0));
+    this.table.A.push(constraint);
+
+    for (let i = 0; i < this.table.A.length; i++) {
+      if (i != this.table.A.length - 1) {
+        this.table.A[i].push(fraction(0));
+      } else {
+        this.table.A[i].push(fraction(1));
+      }
+    }
+    this.table.reverse_simplex();
+    console.log(this.table.A);
+  }
+
+  private chech_if_result_is_integer(): boolean {
+    let result: boolean = true;
+    for (const element of this.table.basis) {
+      if (element.type == VarType.Regular) {
+        if (isInteger(number(element.value))) {
+          result = false;
+          break;
+        }
+      }
+    }
+    return result;
   }
 
   private is_optimal(): boolean {
@@ -202,7 +270,7 @@ export class SimplexMethod {
 class SimplexTable {
   public c: Vector;
   public A: Matrix;
-  private b: Vector;
+  public b: Vector;
   public delta: Vector = [];
   public basis: Vector = [];
 
@@ -234,6 +302,10 @@ class SimplexTable {
       }
     }
     return -1;
+  }
+
+  public reverse_simplex(): Table {
+    return this;
   }
 
   private get_pivot_row(pivot_column: number): number {

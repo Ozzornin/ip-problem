@@ -8,7 +8,15 @@ import EqualInput from "./equalInput/EqualInput";
 import ObjInput from "./objFunction/ObjInput";
 import { MinMaxFunction } from "../utils/enums";
 import { Matrix, SimplexMethod, Vector } from "@/utils/simplex";
+import { all, create, format, fraction, ConfigOptions } from "mathjs";
 export default function Simplex() {
+  const config: ConfigOptions = {
+    number: "Fraction",
+  };
+
+  // create a mathjs instance with everything included
+  const math = create(all, config);
+
   const nums: Array<number> = [
     2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20,
   ];
@@ -93,7 +101,17 @@ export default function Simplex() {
               b_vec,
               constraint_types
             );
-            simplex.solve();
+            let frac = fraction("10/3");
+            let frac1 = fraction(3);
+            console.log(math.format(fraction(1, 3)));
+            console.log(frac.toString());
+            console.log(math.format(frac));
+            console.log(`${frac.d}-d, ${frac.n}-n, ${frac.s}-s`);
+            try {
+              simplex.solve();
+            } catch (e) {
+              console.log(e);
+            }
           }}
         >
           Click me
