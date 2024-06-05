@@ -71,7 +71,7 @@ export default function Simplex() {
           onChange={(e) => setNumOfConstraints(parseInt(e.target.value))}
         >
           {nums.map((num, index) => (
-            <option value={num} key={"NUMS" + index}>
+            <option value={num} key={index + 212}>
               {num}
             </option>
           ))}
@@ -121,7 +121,7 @@ export default function Simplex() {
       </div>
       <div>
         {matrix.map((row, rowIndex) => (
-          <div key={rowIndex + "arrae"} className={styles.constraint}>
+          <div key={`hello${rowIndex}`} className={styles.constraint}>
             {row.map((value, colIndex) => {
               let inputComponent;
               if (colIndex === row.length - 2) {

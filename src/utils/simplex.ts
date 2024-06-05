@@ -1,7 +1,22 @@
 import { MarkOptions } from "perf_hooks";
 import { MinMaxFunction, VarType } from "./enums";
 import { FractionNum, VarNum } from "./varnum";
-import { create, all, fraction, add } from "mathjs";
+import {
+  create,
+  all,
+  fraction,
+  add,
+  multiply,
+  subtract,
+  Fraction,
+  divide,
+  Unit,
+  number,
+  re,
+  to,
+  format,
+} from "mathjs";
+import { Table } from "./table";
 
 enum LogMode {
   LOG_OFF,
@@ -22,6 +37,7 @@ export class SimplexMethod {
   private _num_vars: number;
   private _num_constraints: number;
   private _basis: Vector = [];
+  private _tables: Table[] = [];
 
   constructor(
     func_vec: Vector,
@@ -55,8 +71,8 @@ export class SimplexMethod {
   private _initialize_simplex_table() {
     // Add slack and artificial variables
     for (let i = 0; i < this._num_constraints; i++) {
-      let slack: Vector = new Array(this._num_constraints).fill(0);
-      slack[i] = 1;
+      let slack: Vector = new Array(this._num_constraints).fill(fraction(0));
+      slack[i] = fraction(1);
 
       if (this.constraint_types[i] === "<=") {
         this.a_matrix = this.a_matrix.map((row, rowIndex) =>
@@ -70,10 +86,12 @@ export class SimplexMethod {
         );
       } else if (this.constraint_types[i] === ">=") {
         this.a_matrix = this.a_matrix.map((row, rowIndex) =>
-          row.concat(slack[rowIndex] * -1)
+          row.concat(multiply(slack[rowIndex], fraction(-1)))
         );
-        let artificial: Vector = new Array(this._num_constraints).fill(0);
-        artificial[i] = 1;
+        let artificial: Vector = new Array(this._num_constraints).fill(
+          fraction(0)
+        );
+        artificial[i] = fraction(1);
         this.a_matrix = this.a_matrix.map((row, rowIndex) =>
           row.concat(artificial[rowIndex])
         );
@@ -98,7 +116,7 @@ export class SimplexMethod {
     );
   }
 
-  public solve(): [Vector | null, number | null] {
+  public solve(): [Vector | null, Fraction | null] {
     // Phase 1: Remove artificial variables
     this._phase_one();
 
@@ -106,7 +124,7 @@ export class SimplexMethod {
     if (this._check_artificial_vars_out()) {
       // Phase 2: Solve the original problem
       this._phase_two();
-      return [this.get_solution(), this.get_func_value()];
+      return [[], fraction(0)];
     } else {
       console.log("No feasible solution.");
       return [null, null];
@@ -115,11 +133,11 @@ export class SimplexMethod {
 
   private _phase_one() {
     // Modify objective function for artificial variables
-    let artificial_obj: Vector = [this.table.c.length];
+    let artificial_obj: Vector = [];
     for (let i = 0; i < this.table?.c.length; i++) {
       const el: FractionNum = this.table?.c[i];
       if (this.table?.c[i]?.type != VarType.Artificial) {
-        artificial_obj.push(new FractionNum(el.type, el.value, el.name));
+        artificial_obj.push(new FractionNum(el.type, fraction(0), el.name));
       } else {
         artificial_obj.push(new FractionNum(el.type, el.value, el.name));
       }
@@ -128,7 +146,7 @@ export class SimplexMethod {
     this.table.c = artificial_obj;
 
     while (!this._check_artificial_vars_out()) {
-      this.table?.solve();
+      this._tables.push(this.table?.solve());
     }
   }
 
@@ -151,17 +169,33 @@ export class SimplexMethod {
         });
         this.table.delta.splice(i, 1);
       }
+
+      for (let i = 0; i < this.table.c.length; i++) {
+        for (let j = 0; j < this.table.basis.length; j++) {
+          if (
+            (this.table.basis[j].name as FractionNum) ==
+            (this.table.c[i].name as FractionNum)
+          ) {
+            this.table.basis[j] = this.table.c[i];
+          }
+        }
+      }
     }
+    while (!this.is_optimal()) this._tables.push(this.table.solve(true));
 
-    this.table.solve();
+    this.get_solution();
   }
 
-  public get_solution(): Vector {
-    return this.table.get_solution(this._num_vars);
+  private is_optimal(): boolean {
+    const delta = this.table.get_delta();
+    if (delta.every((val) => number(val) >= 0)) {
+      return true;
+    }
+    return false;
   }
 
-  public get_func_value(): number {
-    return this.table.get_func_value();
+  public get_solution(): void {
+    this.table.get_solution(this._num_vars);
   }
 }
 
@@ -180,102 +214,108 @@ class SimplexTable {
     this.delta = new Array(this.c.length).fill(0);
   }
 
-  public solve() {
-    let pivot_column = this.get_pivot_column();
+  public solve(pivot_column_min: boolean = false): Table {
+    let pivot_column = this.get_pivot_column(pivot_column_min);
     let pivot_row = this.get_pivot_row(pivot_column);
-    this.pivot(pivot_row, pivot_column);
+    return this.pivot(pivot_row, pivot_column) as Table;
   }
 
-  // private is_optimal(): boolean {
-  //   if (this.basis.find((val) => val.type == VarType.Artificial)) {
-  //     return false;
-  //   }
-
-  //   const delta = this.get_delta();
-  //   if (delta.every((val) => val <= 0)) {
-  //     return true;
-  //   }
-  //   return false;
-  // }
-
-  private get_pivot_column(): number {
+  private get_pivot_column(min: boolean): number {
     this.delta = this.get_delta();
-
-    return this.delta.indexOf(Math.max(...this.delta));
+    let max = 0;
+    if (!min) {
+      max = Math.max(...this.delta.map((val) => number(val)));
+    } else {
+      max = Math.min(...this.delta.map((val) => number(val)));
+    }
+    for (let i = 0; i < this.delta.length; i++) {
+      if (this.delta[i] == max) {
+        return i;
+      }
+    }
+    return -1;
   }
 
-  private get_delta(): Vector {
-    const newDelta: number[] = [];
+  private get_pivot_row(pivot_column: number): number {
+    const ratios: Fraction[] = [];
+    this.A.forEach((row, i) => {
+      if (number(row[pivot_column]) > 0) {
+        //ratios.push(this.b[i] / row[pivot_column]);
+        ratios.push(fraction(divide(this.b[i], row[pivot_column])));
+      } else {
+        ratios.push(fraction(Number.MAX_SAFE_INTEGER));
+      }
+    });
+
+    const min = Math.min(...ratios.map((val) => number(val)));
+    for (let i = 0; i < ratios.length; i++) {
+      if (number(ratios[i]) == min) {
+        return i;
+      }
+    }
+    return -1;
+  }
+
+  public get_delta(): Vector {
+    const newDelta: any[] = [];
     for (let i = 0; i < this.delta.length; i++) {
-      let sum = 0;
+      let sum = fraction(0);
       for (let j = 0; j < this.A.length; j++) {
         let basis = this.basis[j].value;
         let a = this.A[j][i];
-        sum += basis * a;
+        sum = add(sum, multiply(basis, a));
       }
-      newDelta.push(sum - this.c[i].value);
+      let c = this.c[i].value;
+      newDelta.push(subtract(fraction(sum), c));
     }
     return newDelta;
   }
 
-  private get_pivot_row(pivot_column: number): number {
-    const ratios: number[] = [];
-    this.A.forEach((row, i) => {
-      if (row[pivot_column] > 0) {
-        ratios.push(this.b[i] / row[pivot_column]);
-      } else {
-        ratios.push(Infinity);
-      }
-    });
-    return ratios.indexOf(Math.min(...ratios));
-  }
-
-  private pivot(pivot_row: number, pivot_column: number) {
+  private pivot(pivot_row: number, pivot_column: number): Table {
     const new_a: Matrix = [];
-    const new_b: Vector = [];
+    const new_b: Fraction[] = [];
     for (let i = 0; i < this.A.length; i++) {
       if (i === pivot_row) {
         new_a.push(
-          this.A[i].map((val) => val / this.A[pivot_row][pivot_column])
+          this.A[i].map((val) => divide(val, this.A[pivot_row][pivot_column]))
         );
-        new_b.push(this.b[pivot_row] / this.A[pivot_row][pivot_column]);
+        new_b.push(
+          fraction(divide(this.b[pivot_row], this.A[pivot_row][pivot_column]))
+        );
       } else {
         new_a.push(
-          this.A[i].map(
-            (val, j) =>
-              val -
-              (this.A[i][pivot_column] * this.A[pivot_row][j]) /
+          this.A[i].map((val, j) =>
+            subtract(
+              val,
+              divide(
+                multiply(this.A[i][pivot_column], this.A[pivot_row][j]),
                 this.A[pivot_row][pivot_column]
+              )
+            )
           )
         );
         new_b.push(
-          this.b[i] -
-            (this.A[i][pivot_column] * this.b[pivot_row]) /
+          subtract(
+            this.b[i],
+            divide(
+              multiply(this.A[i][pivot_column], this.b[pivot_row]),
               this.A[pivot_row][pivot_column]
+            )
+          )
         );
       }
     }
+    console.log(divide(fraction(1), fraction(3)).toString());
+    console.log(new_b.map((val) => fraction(val).toString()));
     this.basis[pivot_row] = this.c[pivot_column];
     this.b = new_b;
     this.A = new_a;
+    return new Table(this.c, this.A, this.b, this.delta, this.basis);
   }
 
-  public get_solution(num_vars: number): Vector {
-    // Extract the solution
-    let solution: Vector = new Array(num_vars).fill(0);
-    this.basic_vars.forEach((varIndex, i) => {
-      if (varIndex < num_vars) {
-        solution[varIndex] = this.b[i];
-      }
-    });
-    return solution;
-  }
-
-  public get_func_value(): number {
-    // Compute the objective function value
-    return this.c.reduce(
-      (sum, coef, i) => sum + coef * this.get_solution(this.c.length)[i],
-      0
-    );
+  public get_solution(num_vars: number): void {
+    console.log(this.basis);
+    console.log(this.b);
+    console.log(this.A);
   }
 }
