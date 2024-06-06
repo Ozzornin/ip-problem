@@ -8,7 +8,9 @@ import EqualInput from "./equalInput/EqualInput";
 import ObjInput from "./objFunction/ObjInput";
 import { MinMaxFunction } from "../utils/enums";
 import { Matrix, SimplexMethod, Vector } from "@/utils/simplex";
-import { all, create, format, fraction, ConfigOptions } from "mathjs";
+import { all, create, ConfigOptions } from "mathjs";
+import { Table } from "@/utils/table";
+import SimplexTable from "./SimplexTable/SimplexTable";
 export default function Simplex() {
   const config: ConfigOptions = {
     number: "Fraction",
@@ -26,13 +28,14 @@ export default function Simplex() {
   const [numOfVariables, setNumOfVariables] = React.useState<number>(4);
   const [numOfConstraints, setNumOfConstraints] = React.useState<number>(2);
   const [objectiveFunction, setObjectiveFunction] = React.useState<
-    Array<number>
+    Array<string>
   >([]);
   const [matrix, setMatrix] = useState(
     Array(numOfConstraints)
       .fill(0)
       .map(() => Array(numOfVariables + 2).fill(0))
   );
+  const [tables, setTables] = useState<Table[] | null>([]);
 
   const updateMatrixValue = (row: number, col: number, value: any) => {
     const newMatrix = matrix.map((r, rowIndex) =>
@@ -41,7 +44,7 @@ export default function Simplex() {
     setMatrix(newMatrix);
   };
 
-  const updateObjectiveFunction = (col: number, value: number) => {
+  const updateObjectiveFunction = (col: number, value: string) => {
     const newObjectiveFunction = objectiveFunction.map((val, index) =>
       index === col ? value : val
     );
@@ -101,17 +104,15 @@ export default function Simplex() {
               b_vec,
               constraint_types
             );
-            let frac = fraction("10/3");
-            let frac1 = fraction(3);
-            console.log(math.format(fraction(1, 3)));
-            console.log(frac.toString());
-            console.log(math.format(frac));
-            console.log(`${frac.d}-d, ${frac.n}-n, ${frac.s}-s`);
+            let tables: Table[] = [...simplex._tables];
+
             try {
               simplex.solve();
+              tables.push(...simplex._tables);
             } catch (e) {
               console.log(e);
             }
+            setTables(tables);
           }}
         >
           Click me
@@ -180,6 +181,12 @@ export default function Simplex() {
             })}
           </div>
         ))}
+        <div>
+          {tables &&
+            tables.map((table, index) => {
+              return <SimplexTable key={index} table={table}></SimplexTable>;
+            })}
+        </div>
       </div>
     </>
   );

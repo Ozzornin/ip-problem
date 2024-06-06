@@ -1,22 +1,16 @@
-import { MarkOptions } from "perf_hooks";
-import { MinMaxFunction, VarType } from "./enums";
-import { FractionNum, VarNum } from "./varnum";
+import { VarType } from "./enums";
+import { FractionNum } from "./varnum";
 import {
-  create,
-  all,
   fraction,
   add,
   multiply,
   subtract,
   Fraction,
   divide,
-  Unit,
   number,
-  re,
-  to,
-  format,
   isInteger,
   floor,
+  abs,
 } from "mathjs";
 import { Table } from "./table";
 
@@ -39,7 +33,7 @@ export class SimplexMethod {
   private _num_vars: number;
   private _num_constraints: number;
   private _basis: Vector = [];
-  private _tables: Table[] = [];
+  public _tables: Table[] = [];
 
   constructor(
     func_vec: Vector,
@@ -71,22 +65,28 @@ export class SimplexMethod {
   }
 
   private _initialize_simplex_table() {
+    let numOfSlack = 0;
+    let numOfArtificial = 0;
+
     // Add slack and artificial variables
     for (let i = 0; i < this._num_constraints; i++) {
       let slack: Vector = new Array(this._num_constraints).fill(fraction(0));
       slack[i] = fraction(1);
 
       if (this.constraint_types[i] === "<=") {
+        numOfSlack++;
         this.a_matrix = this.a_matrix.map((row, rowIndex) =>
           row.concat(slack[rowIndex])
         );
         this.c_vec.push(
-          new FractionNum(VarType.Slack, fraction(0), `s${i + 1}`)
+          new FractionNum(VarType.Slack, fraction(0), `s${numOfSlack}`)
         );
         this._basis.push(
-          new FractionNum(VarType.Slack, fraction(0), `s${i + 1}`)
+          new FractionNum(VarType.Slack, fraction(0), `s${numOfSlack}`)
         );
       } else if (this.constraint_types[i] === ">=") {
+        numOfSlack++;
+        numOfArtificial++;
         this.a_matrix = this.a_matrix.map((row, rowIndex) =>
           row.concat(multiply(slack[rowIndex], fraction(-1)))
         );
@@ -98,18 +98,25 @@ export class SimplexMethod {
           row.concat(artificial[rowIndex])
         );
         this.c_vec.push(
-          new FractionNum(VarType.Slack, fraction(0), `s${i + 1}`)
+          new FractionNum(VarType.Slack, fraction(0), `s${numOfSlack}`)
         );
         this.c_vec.push(
-          new FractionNum(VarType.Artificial, fraction(1), `a${i + 1}`)
+          new FractionNum(
+            VarType.Artificial,
+            fraction(1),
+            `a${numOfArtificial}`
+          )
         );
         this._basis.push(
-          new FractionNum(VarType.Artificial, fraction(1), `a${i + 1}`)
+          new FractionNum(
+            VarType.Artificial,
+            fraction(1),
+            `a${numOfArtificial}`
+          )
         );
       }
     }
-    console.log(this.a_matrix);
-    console.log(this.c_vec);
+
     this.table = new SimplexTable(
       [...this.c_vec],
       this.a_matrix,
@@ -118,22 +125,17 @@ export class SimplexMethod {
     );
   }
 
-  public solve(): [Table[] | null] {
+  public solve(): Table[] | null {
     // Phase 1: Remove artificial variables
-    this._phase_one();
-
-    // Check if all artificial variables are out of the basis
-    if (this._check_artificial_vars_out()) {
-      // Phase 2: Solve the original problem
-      this._phase_two();
-      if (!this.chech_if_result_is_integer()) {
-        this._phase_three();
-      }
-      return [this._tables];
-    } else {
-      console.log("No feasible solution.");
-      return [null];
+    if (!this._check_artificial_vars_out()) {
+      this._phase_one();
     }
+    // Phase 2: Solve the original problem
+    this._phase_two();
+    while (!this.chech_if_result_is_integer()) {
+      this._phase_three();
+    }
+    return this._tables;
   }
 
   private _phase_one() {
@@ -151,7 +153,7 @@ export class SimplexMethod {
     this.table.c = artificial_obj;
 
     while (!this._check_artificial_vars_out()) {
-      this._tables.push(this.table?.solve());
+      this.table?.solve();
     }
   }
 
@@ -186,7 +188,7 @@ export class SimplexMethod {
         }
       }
     }
-    while (!this.is_optimal()) this._tables.push(this.table.solve(true));
+    while (!this.is_optimal()) this.table.solve(true);
 
     this.get_solution();
   }
@@ -194,6 +196,7 @@ export class SimplexMethod {
   private _phase_three() {
     const constraint: Fraction[] = [];
     let index = 0;
+    // Find the first non-integer basis variable
     for (let i = 0; i < this.table.basis.length; i++) {
       if (
         this.table.basis[i].type == VarType.Regular &&
@@ -203,33 +206,35 @@ export class SimplexMethod {
         break;
       }
     }
-
+    // Create a new constraint with reversed signs
     constraint.push(
       ...this.table.A[index].map((val) => {
         let frac = fraction(subtract(val, floor(val)));
-        frac.s = -1;
+        frac.s *= -1;
         return frac;
       })
     );
-    const numOfSlack = this.table.basis.filter(
+    // Add a new slack variable
+    const numOfSlack = this.table.c.filter(
       (val) => val.type == VarType.Slack
     ).length;
     const newSlack = new FractionNum(
       VarType.Slack,
-      fraction(1),
+      fraction(0),
       `s${numOfSlack + 1}`
     );
-
+    // Add the new slack variable to the basis with a negative sign
     let basis = fraction(
       subtract(this.table.b[index], floor(this.table.b[index]))
     );
-    basis.s = -1;
+    basis.s *= -1;
     this.table.b.push(basis);
     this.table.basis.push(newSlack);
     this.table.c.push(newSlack);
     this.table.delta.push(fraction(0));
     this.table.A.push(constraint);
 
+    // Add new column of a new slack variable to the table
     for (let i = 0; i < this.table.A.length; i++) {
       if (i != this.table.A.length - 1) {
         this.table.A[i].push(fraction(0));
@@ -238,14 +243,15 @@ export class SimplexMethod {
       }
     }
     this.table.reverse_simplex();
-    console.log(this.table.A);
   }
 
   private chech_if_result_is_integer(): boolean {
     let result: boolean = true;
-    for (const element of this.table.basis) {
-      if (element.type == VarType.Regular) {
-        if (isInteger(number(element.value))) {
+    for (let i = 0; i < this.table.basis.length; i++) {
+      if (this.table.basis[i].type == VarType.Regular) {
+        // let num = number(this.table.b[i]);
+        // let isInt = isInteger(num);
+        if (!isInteger(number(this.table.b[i]))) {
           result = false;
           break;
         }
@@ -305,7 +311,44 @@ class SimplexTable {
   }
 
   public reverse_simplex(): Table {
-    return this;
+    let pivot_row = this.get_pivot_row_r();
+    let pivot_column = this.get_pivot_column_r(pivot_row);
+    return this.pivot(pivot_row, pivot_column);
+  }
+
+  private get_pivot_column_r(row: number): number {
+    let index = -1;
+
+    let delta = this.get_delta();
+    let ratios: Fraction[] = [];
+    let ratios2: number[] = [];
+    this.A[row].forEach((val, i) => {
+      if (val != 0 && val != 1) {
+        ratios2.push(i);
+        ratios.push(fraction(abs(divide(delta[i], val))));
+      } else ratios.push(fraction(0));
+    });
+    console.log(ratios);
+
+    const min = Math.min(...ratios2.map((val) => number(ratios[val])));
+    for (let i = 0; i < ratios.length; i++) {
+      if (number(ratios[i]) == min) {
+        index = i;
+      }
+    }
+    return index;
+  }
+
+  private get_pivot_row_r(): number {
+    let index = -1;
+    let min = Math.min(...this.b.map((val) => number(val)));
+    for (let i = 0; i < this.b.length; i++) {
+      if (this.b[i] == min) {
+        index = i;
+        break;
+      }
+    }
+    return index;
   }
 
   private get_pivot_row(pivot_column: number): number {
@@ -329,7 +372,7 @@ class SimplexTable {
   }
 
   public get_delta(): Vector {
-    const newDelta: any[] = [];
+    const newDelta: Fraction[] = [];
     for (let i = 0; i < this.delta.length; i++) {
       let sum = fraction(0);
       for (let j = 0; j < this.A.length; j++) {
@@ -377,7 +420,6 @@ class SimplexTable {
         );
       }
     }
-    console.log(divide(fraction(1), fraction(3)).toString());
     console.log(new_b.map((val) => fraction(val).toString()));
     this.basis[pivot_row] = this.c[pivot_column];
     this.b = new_b;

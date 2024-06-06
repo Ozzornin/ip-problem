@@ -3,8 +3,8 @@ import styles from "./objinput.module.scss";
 
 interface ObjInputProps {
   index: number;
-  value: number;
-  setObjFunc: (index: number, value: number) => void;
+  value: string;
+  setObjFunc: (index: number, value: string) => void;
 }
 
 export default function ObjInput({
@@ -19,7 +19,7 @@ export default function ObjInput({
         type="text"
         name="number"
         value={value}
-        onChange={(e) => setObjFunc(index, parseInt(e.target.value))}
+        onChange={(e) => setObjFunc(index, e.target.value)}
       />
       <label htmlFor="number" className={styles.label}>
         x{index + 1}

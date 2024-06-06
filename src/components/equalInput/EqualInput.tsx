@@ -4,10 +4,10 @@ import React, { useEffect } from "react";
 import styles from "./equalinput.module.scss";
 
 interface EqualInputProps {
-  setMatrix: (row: number, col: number, val: any) => void; // replace 'number' with the actual type of numberState
+  setMatrix: (row: number, col: number, val: string) => void; // replace 'number' with the actual type of numberState
   row: number;
   col: number;
-  value: number;
+  value: string;
 }
 
 export default function EqualInput({
@@ -22,7 +22,7 @@ export default function EqualInput({
       type="text"
       name="number"
       value={value}
-      onChange={(e) => setMatrix(row, col, parseInt(e.target.value))}
+      onChange={(e) => setMatrix(row, col, e.target.value)}
     />
   );
 }
