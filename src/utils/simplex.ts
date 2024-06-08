@@ -1,4 +1,4 @@
-import { VarType } from "./enums";
+import { MinMaxFunction, VarType } from "./enums";
 import { FractionNum } from "./varnum";
 import {
   fraction,
@@ -14,12 +14,6 @@ import {
 } from "mathjs";
 import { Table } from "./table";
 
-enum LogMode {
-  LOG_OFF,
-  MEDIUM_LOG,
-  FULL_LOG,
-}
-
 export interface Vector extends Array<any> {}
 export interface Matrix extends Array<Vector> {}
 
@@ -27,26 +21,31 @@ export class SimplexMethod {
   private c_vec: Vector;
   private a_matrix: Matrix;
   private b_vec: Vector;
-  private log_mode: LogMode;
-  private table: SimplexTable;
+  public table: SimplexTable = new SimplexTable([], [], [], []);
   private constraint_types: string[];
   private _num_vars: number;
   private _num_constraints: number;
   private _basis: Vector = [];
   public _tables: Table[] = [];
+  public minmax: MinMaxFunction = MinMaxFunction.Max;
+  public isInteger: boolean = false;
 
   constructor(
     func_vec: Vector,
     conditions_matrix: Matrix,
     constraints_vec: Vector,
     constraint_types: string[],
-    log_mode: LogMode = LogMode.LOG_OFF
+    minmax: MinMaxFunction,
+    isInteger: boolean
   ) {
     // ВЕКТОР ФУНКЦІЇ
     this.c_vec = func_vec.map(
       (val, index) =>
         new FractionNum(VarType.Regular, fraction(val), `x${index + 1}`)
     );
+
+    this.minmax = minmax;
+    this.isInteger = isInteger;
     // МАТРИЦЯ УМОВ
     this.a_matrix = conditions_matrix.map((row) =>
       row.map((val) => fraction(val))
@@ -56,12 +55,33 @@ export class SimplexMethod {
     // ЗНАК УМОВ
     this.constraint_types = constraint_types;
 
-    this.log_mode = log_mode;
-
     this._num_vars = this.c_vec.length;
     this._num_constraints = this.a_matrix.length;
-    this.table = new SimplexTable(this.c_vec, this.a_matrix, this.b_vec, []);
+    //this.table = new SimplexTable(this.c_vec, this.a_matrix, this.b_vec, []);
+    this.canonize();
     this._initialize_simplex_table();
+  }
+
+  private canonize() {
+    if (this.minmax === MinMaxFunction.Min) {
+      this.c_vec.map(
+        (val) => (val.value = multiply(fraction(val.value), fraction(-1)))
+      );
+    }
+
+    for (let i = 0; i < this.b_vec.length; i++) {
+      if (this.b_vec[i].s < 0) {
+        this.b_vec[i].s *= -1;
+        this.a_matrix[i] = this.a_matrix[i].map((val) =>
+          multiply(val, fraction(-1))
+        );
+        if (this.constraint_types[i] === "<=") {
+          this.constraint_types[i] = ">=";
+        } else if (this.constraint_types[i] === ">=") {
+          this.constraint_types[i] = "<=";
+        }
+      }
+    }
   }
 
   private _initialize_simplex_table() {
@@ -114,28 +134,68 @@ export class SimplexMethod {
             `a${numOfArtificial}`
           )
         );
+      } else {
+        numOfArtificial++;
+        let artificial: Vector = new Array(this._num_constraints).fill(
+          fraction(0)
+        );
+        artificial[i] = fraction(1);
+        this.a_matrix = this.a_matrix.map((row, rowIndex) =>
+          row.concat(artificial[rowIndex])
+        );
+        this.c_vec.push(
+          new FractionNum(
+            VarType.Artificial,
+            fraction(1),
+            `a${numOfArtificial}`
+          )
+        );
+        this._basis.push(
+          new FractionNum(
+            VarType.Artificial,
+            fraction(1),
+            `a${numOfArtificial}`
+          )
+        );
       }
     }
 
     this.table = new SimplexTable(
       [...this.c_vec],
-      this.a_matrix,
-      this.b_vec,
-      this._basis
+      [...this.a_matrix],
+      [...this.b_vec],
+      [...this._basis]
     );
+
+    // this.table.c = [...this.c_vec];
+    // this.table.A = [...this.a_matrix];
+    // this.table.b = [...this.b_vec];
+    // this.table.basis = [...this._basis];
   }
 
-  public solve(): Table[] | null {
+  public solve(): Table[] {
     // Phase 1: Remove artificial variables
     if (!this._check_artificial_vars_out()) {
       this._phase_one();
     }
     // Phase 2: Solve the original problem
+    this.table.saves.push(
+      "Штучні змінні не в базисі, обчислюємо наступну симплекс таблицю до оптимального розв'язку."
+    );
     this._phase_two();
-    while (!this.chech_if_result_is_integer()) {
-      this._phase_three();
-    }
-    return this._tables;
+    if (this.isInteger)
+      while (!this.chech_if_result_is_integer()) {
+        this.table.saves.push(
+          "Розв'язок не цілочисельний, обчислюємо наступну симплекс таблицю."
+        );
+        this._phase_three();
+      }
+    this.table.saves.push("Результуюча симплекс таблиця");
+    this.table.save();
+    this.table.saves[this.table.saves.length - 1].pivot_column = -1;
+    this.table.saves[this.table.saves.length - 1].pivot_row = -1;
+    this.table.get_solution();
+    return this.table.saves;
   }
 
   private _phase_one() {
@@ -149,7 +209,9 @@ export class SimplexMethod {
         artificial_obj.push(new FractionNum(el.type, el.value, el.name));
       }
     }
-
+    this.table.saves.push(
+      "Змінюємо коефіцієнти у цільовій функції для того щоб штучні змінні першими вийшли з базису."
+    );
     this.table.c = artificial_obj;
 
     while (!this._check_artificial_vars_out()) {
@@ -188,9 +250,8 @@ export class SimplexMethod {
         }
       }
     }
-    while (!this.is_optimal()) this.table.solve(true);
 
-    this.get_solution();
+    while (!this.is_optimal()) this.table.solve(true);
   }
 
   private _phase_three() {
@@ -232,7 +293,7 @@ export class SimplexMethod {
     this.table.basis.push(newSlack);
     this.table.c.push(newSlack);
     this.table.delta.push(fraction(0));
-    this.table.A.push(constraint);
+    this.table.A.push([...constraint]);
 
     // Add new column of a new slack variable to the table
     for (let i = 0; i < this.table.A.length; i++) {
@@ -242,6 +303,11 @@ export class SimplexMethod {
         this.table.A[i].push(fraction(1));
       }
     }
+    this.table.save();
+
+    this.table.saves[this.table.saves.length - 1].pivot_column = -1;
+    this.table.saves[this.table.saves.length - 1].pivot_row = -1;
+    this.table.saves.push("Додаємо нову умову щоб позбутися дробовості");
     this.table.reverse_simplex();
   }
 
@@ -267,10 +333,6 @@ export class SimplexMethod {
     }
     return false;
   }
-
-  public get_solution(): void {
-    this.table.get_solution(this._num_vars);
-  }
 }
 
 class SimplexTable {
@@ -279,6 +341,10 @@ class SimplexTable {
   public b: Vector;
   public delta: Vector = [];
   public basis: Vector = [];
+  public saves: any[] = [];
+  public pivot_column: number = 0;
+  public pivot_row: number = 0;
+  public result: Fraction = fraction(0);
 
   constructor(c: Vector, A: Matrix, b: Vector, basis: Vector) {
     this.c = c;
@@ -286,12 +352,17 @@ class SimplexTable {
     this.b = b;
     this.basis = basis;
     this.delta = new Array(this.c.length).fill(0);
+
+    this.saves.push("Початкова таблиця");
+    this.save();
+    this.saves[this.saves.length - 1].pivot_column = -1;
+    this.saves[this.saves.length - 1].pivot_row = -1;
   }
 
-  public solve(pivot_column_min: boolean = false): Table {
-    let pivot_column = this.get_pivot_column(pivot_column_min);
-    let pivot_row = this.get_pivot_row(pivot_column);
-    return this.pivot(pivot_row, pivot_column) as Table;
+  public solve(pivot_column_min: boolean = false): void {
+    this.pivot_column = this.get_pivot_column(pivot_column_min);
+    this.pivot_row = this.get_pivot_row(this.pivot_column);
+    this.pivot(this.pivot_row, this.pivot_column);
   }
 
   private get_pivot_column(min: boolean): number {
@@ -310,10 +381,15 @@ class SimplexTable {
     return -1;
   }
 
-  public reverse_simplex(): Table {
-    let pivot_row = this.get_pivot_row_r();
-    let pivot_column = this.get_pivot_column_r(pivot_row);
-    return this.pivot(pivot_row, pivot_column);
+  public reverse_simplex(): void {
+    this.pivot_row = this.get_pivot_row_r();
+    this.pivot_column = this.get_pivot_column_r(this.pivot_row);
+    this.saves.push(
+      `Виконуємо обернений симплекс метод. Напрямний рядок - ${
+        this.basis[this.pivot_row].name
+      }, напрямний стовбець - ${this.c[this.pivot_column].name} `
+    );
+    this.pivot(this.pivot_row, this.pivot_column);
   }
 
   private get_pivot_column_r(row: number): number {
@@ -373,10 +449,10 @@ class SimplexTable {
 
   public get_delta(): Vector {
     const newDelta: Fraction[] = [];
-    for (let i = 0; i < this.delta.length; i++) {
+    for (let i = 0; i < this.c.length; i++) {
       let sum = fraction(0);
       for (let j = 0; j < this.A.length; j++) {
-        let basis = this.basis[j].value;
+        let basis = this.basis[j]?.value;
         let a = this.A[j][i];
         sum = add(sum, multiply(basis, a));
       }
@@ -386,7 +462,9 @@ class SimplexTable {
     return newDelta;
   }
 
-  private pivot(pivot_row: number, pivot_column: number): Table {
+  private pivot(pivot_row: number, pivot_column: number): void {
+    this.save();
+
     const new_a: Matrix = [];
     const new_b: Fraction[] = [];
     for (let i = 0; i < this.A.length; i++) {
@@ -420,16 +498,80 @@ class SimplexTable {
         );
       }
     }
+
     console.log(new_b.map((val) => fraction(val).toString()));
+    if (
+      this.basis[pivot_row].name.localeCompare(this.c[pivot_column].name) == 0
+    ) {
+      this.saves[this.saves.length - 1].pivot_column = -1;
+      this.saves[this.saves.length - 1].pivot_row = -1;
+      throw new Error("Не можливо визначити напрямний елемент.");
+    }
+    this.saves.push(
+      `Вибираємо ведучий елемент - ${this.A[pivot_row][pivot_column]} (${
+        pivot_row + 1
+      }, ${pivot_column + 1})`
+    );
+    this.saves.push(
+      `${this.basis[pivot_row].name} виходить з базису, ${this.c[pivot_column].name} входить в базис.`
+    );
     this.basis[pivot_row] = this.c[pivot_column];
     this.b = new_b;
     this.A = new_a;
-    return new Table(this.c, this.A, this.b, this.delta, this.basis);
+
+    //return new Table(this.c, this.A, this.b, this.delta, this.basis, pivot_column, pivot_row);
   }
 
-  public get_solution(num_vars: number): void {
-    console.log(this.basis);
-    console.log(this.b);
-    console.log(this.A);
+  public get_Result(): Fraction {
+    // let test = "";
+    this.result = fraction(0);
+    for (let i = 0; i < this.c.length; i++) {
+      for (let j = 0; j < this.basis.length; j++) {
+        if (this.c[i].name == this.basis[j].name) {
+          this.result = add(this.result, multiply(this.c[i].value, this.b[j]));
+          // test += `${this.c[i].name} ${this.c[i].value} * ${
+          //   this.b[j]
+          // } = ${multiply(this.c[i].value, this.b[j])} `;
+        }
+      }
+    }
+    // this.saves.push(test + "|||  " + this.result.toString());
+    return this.result;
+  }
+
+  public save() {
+    this.saves.push(
+      new Table(
+        [...this.c],
+        [...this.A],
+        [...this.b],
+        [...this.get_delta()],
+        [...this.basis],
+        this.pivot_column,
+        this.pivot_row,
+        this.get_Result()
+      )
+    );
+  }
+
+  public get_solution(): void {
+    let result = this.get_Result();
+    let solution: String[] = [];
+    for (let i = 0; i < this.c.length; i++) {
+      for (let j = 0; j < this.basis.length; j++) {
+        if (
+          this.c[i].name == this.basis[j].name &&
+          this.c[i].type == VarType.Regular
+        ) {
+          solution.push(`x${i + 1}=` + this.b[j]);
+        }
+        // else {
+        //   solution.push(`x${i}=0`);
+        // }
+      }
+    }
+    this.saves.push(
+      "Оптимальне рішення: " + solution.concat(" ") + ` F = ${result}`
+    );
   }
 }

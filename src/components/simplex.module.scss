@@ -18,3 +18,35 @@
   margin-top: 20px;
   margin-bottom: 20px;
 }
+
+.data {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  margin-top: 20px;
+  margin-bottom: 20px;
+}
+
+.comment {
+  margin-top: 20px;
+  margin-bottom: 20px;
+}
+
+.singleButton {
+  border-style: hidden;
+  width: 100px;
+  height: 30px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  margin-top: 20px;
+  margin-bottom: 20px;
+  background-color: #cba163;
+  color: black;
+  border-radius: 5%;
+  &:hover {
+    background-color: #684930;
+    color: white;
+  }
+}

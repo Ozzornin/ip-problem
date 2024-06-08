@@ -11,6 +11,7 @@ import { Matrix, SimplexMethod, Vector } from "@/utils/simplex";
 import { all, create, ConfigOptions } from "mathjs";
 import { Table } from "@/utils/table";
 import SimplexTable from "./SimplexTable/SimplexTable";
+import { Exception } from "sass";
 export default function Simplex() {
   const config: ConfigOptions = {
     number: "Fraction",
@@ -25,6 +26,7 @@ export default function Simplex() {
   const [vector, setVector] = React.useState<MinMaxFunction>(
     MinMaxFunction.Max
   );
+  const [integer, setInteger] = React.useState<boolean>(false);
   const [numOfVariables, setNumOfVariables] = React.useState<number>(4);
   const [numOfConstraints, setNumOfConstraints] = React.useState<number>(2);
   const [objectiveFunction, setObjectiveFunction] = React.useState<
@@ -36,7 +38,7 @@ export default function Simplex() {
       .map(() => Array(numOfVariables + 2).fill(0))
   );
   const [tables, setTables] = useState<Table[] | null>([]);
-
+  const [error, setError] = useState<string>("");
   const updateMatrixValue = (row: number, col: number, value: any) => {
     const newMatrix = matrix.map((r, rowIndex) =>
       r.map((c, colIndex) => (rowIndex === row && colIndex === col ? value : c))
@@ -88,36 +90,7 @@ export default function Simplex() {
           ))}
         </select>
       </div>
-      <div>
-        <button
-          onClick={() => {
-            console.log(matrix);
-            const c_vec: Vector = objectiveFunction;
-            const b_vec: Vector = matrix.map((row) => row[row.length - 1]);
-            const a_matrix: Matrix = matrix.map((row) =>
-              row.slice(0, row.length - 2)
-            );
-            const constraint_types = matrix.map((row) => row[row.length - 2]);
-            const simplex: SimplexMethod = new SimplexMethod(
-              c_vec,
-              a_matrix,
-              b_vec,
-              constraint_types
-            );
-            let tables: Table[] = [...simplex._tables];
-
-            try {
-              simplex.solve();
-              tables.push(...simplex._tables);
-            } catch (e) {
-              console.log(e);
-            }
-            setTables(tables);
-          }}
-        >
-          Click me
-        </button>
-      </div>
+      <div></div>
       <div>
         {objectiveFunction.map((value, index) => (
           <>
@@ -182,11 +155,71 @@ export default function Simplex() {
           </div>
         ))}
         <div>
-          {tables &&
-            tables.map((table, index) => {
-              return <SimplexTable key={index} table={table}></SimplexTable>;
-            })}
+          <div>
+            <input
+              type="checkbox"
+              onChange={(e) => setInteger(e.target.checked)}
+            />
+            <label>Цілочисельне</label>
+          </div>
+          <button
+            className={styles.singleButton}
+            onClick={() => {
+              console.log(matrix);
+              const c_vec: Vector = objectiveFunction;
+              const b_vec: Vector = matrix.map((row) => row[row.length - 1]);
+              const a_matrix: Matrix = matrix.map((row) =>
+                row.slice(0, row.length - 2)
+              );
+              const constraint_types = matrix.map((row) => row[row.length - 2]);
+
+              let tables: Table[] = [];
+              let simplex: SimplexMethod | null = null;
+              try {
+                simplex = new SimplexMethod(
+                  c_vec,
+                  a_matrix,
+                  b_vec,
+                  constraint_types,
+                  vector,
+                  integer
+                );
+              } catch (e: any) {
+                setError(e.toString());
+              }
+              if (simplex) {
+                try {
+                  tables.push(...simplex.solve());
+                } catch (e: any) {
+                  simplex.table.saves.push("Помилка: " + e.message.toString());
+                  tables.push(...simplex.table.saves);
+                }
+              }
+              setTables(tables);
+            }}
+          >
+            Обчислити
+          </button>
         </div>
+        {error ? (
+          <div>{error}</div>
+        ) : (
+          <div className={styles.data}>
+            {tables &&
+              tables.map((table, index) => {
+                if (typeof table === "string")
+                  return (
+                    <div key={index} className={styles.comment}>
+                      {table}
+                    </div>
+                  );
+                else
+                  return (
+                    <SimplexTable key={index} table={table}></SimplexTable>
+                  );
+              })}
+          </div>
+        )}
       </div>
     </>
   );

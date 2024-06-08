@@ -25,7 +25,7 @@ export default function NumberInput({
         onChange={(e) => setMatrix(row, col, e.target.value)}
       />
       <label htmlFor="number" className={styles.label}>
-        x{col + 1}
+        x<sub className={styles.small}>{col + 1}</sub>
       </label>
     </>
   );
