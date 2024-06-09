@@ -38,7 +38,6 @@ export class SimplexMethod {
     minmax: MinMaxFunction,
     isInteger: boolean
   ) {
-    // ВЕКТОР ФУНКЦІЇ
     this.c_vec = func_vec.map(
       (val, index) =>
         new FractionNum(VarType.Regular, fraction(val), `x${index + 1}`)
@@ -46,18 +45,18 @@ export class SimplexMethod {
 
     this.minmax = minmax;
     this.isInteger = isInteger;
-    // МАТРИЦЯ УМОВ
+
     this.a_matrix = conditions_matrix.map((row) =>
       row.map((val) => fraction(val))
     );
-    // ВЕКТОР УМОВ
+
     this.b_vec = constraints_vec.map((val) => fraction(val));
-    // ЗНАК УМОВ
+
     this.constraint_types = constraint_types;
 
     this._num_vars = this.c_vec.length;
     this._num_constraints = this.a_matrix.length;
-    //this.table = new SimplexTable(this.c_vec, this.a_matrix, this.b_vec, []);
+
     this.canonize();
     this._initialize_simplex_table();
   }
@@ -88,7 +87,6 @@ export class SimplexMethod {
     let numOfSlack = 0;
     let numOfArtificial = 0;
 
-    // Add slack and artificial variables
     for (let i = 0; i < this._num_constraints; i++) {
       let slack: Vector = new Array(this._num_constraints).fill(fraction(0));
       slack[i] = fraction(1);
@@ -166,19 +164,13 @@ export class SimplexMethod {
       [...this.b_vec],
       [...this._basis]
     );
-
-    // this.table.c = [...this.c_vec];
-    // this.table.A = [...this.a_matrix];
-    // this.table.b = [...this.b_vec];
-    // this.table.basis = [...this._basis];
   }
 
   public solve(): Table[] {
-    // Phase 1: Remove artificial variables
     if (!this._check_artificial_vars_out()) {
       this._phase_one();
     }
-    // Phase 2: Solve the original problem
+
     this.table.saves.push(
       "Штучні змінні не в базисі, обчислюємо наступну симплекс таблицю до оптимального розв'язку."
     );
@@ -199,7 +191,6 @@ export class SimplexMethod {
   }
 
   private _phase_one() {
-    // Modify objective function for artificial variables
     let artificial_obj: Vector = [];
     for (let i = 0; i < this.table?.c.length; i++) {
       const el: FractionNum = this.table?.c[i];
@@ -257,7 +248,7 @@ export class SimplexMethod {
   private _phase_three() {
     const constraint: Fraction[] = [];
     let index = 0;
-    // Find the first non-integer basis variable
+
     for (let i = 0; i < this.table.basis.length; i++) {
       if (
         this.table.basis[i].type == VarType.Regular &&
@@ -267,7 +258,7 @@ export class SimplexMethod {
         break;
       }
     }
-    // Create a new constraint with reversed signs
+
     constraint.push(
       ...this.table.A[index].map((val) => {
         let frac = fraction(subtract(val, floor(val)));
@@ -275,7 +266,7 @@ export class SimplexMethod {
         return frac;
       })
     );
-    // Add a new slack variable
+
     const numOfSlack = this.table.c.filter(
       (val) => val.type == VarType.Slack
     ).length;
@@ -284,7 +275,7 @@ export class SimplexMethod {
       fraction(0),
       `s${numOfSlack + 1}`
     );
-    // Add the new slack variable to the basis with a negative sign
+
     let basis = fraction(
       subtract(this.table.b[index], floor(this.table.b[index]))
     );
@@ -295,7 +286,6 @@ export class SimplexMethod {
     this.table.delta.push(fraction(0));
     this.table.A.push([...constraint]);
 
-    // Add new column of a new slack variable to the table
     for (let i = 0; i < this.table.A.length; i++) {
       if (i != this.table.A.length - 1) {
         this.table.A[i].push(fraction(0));
@@ -315,8 +305,6 @@ export class SimplexMethod {
     let result: boolean = true;
     for (let i = 0; i < this.table.basis.length; i++) {
       if (this.table.basis[i].type == VarType.Regular) {
-        // let num = number(this.table.b[i]);
-        // let isInt = isInteger(num);
         if (!isInteger(number(this.table.b[i]))) {
           result = false;
           break;
@@ -431,7 +419,6 @@ class SimplexTable {
     const ratios: Fraction[] = [];
     this.A.forEach((row, i) => {
       if (number(row[pivot_column]) > 0) {
-        //ratios.push(this.b[i] / row[pivot_column]);
         ratios.push(fraction(divide(this.b[i], row[pivot_column])));
       } else {
         ratios.push(fraction(Number.MAX_SAFE_INTEGER));
@@ -518,24 +505,18 @@ class SimplexTable {
     this.basis[pivot_row] = this.c[pivot_column];
     this.b = new_b;
     this.A = new_a;
-
-    //return new Table(this.c, this.A, this.b, this.delta, this.basis, pivot_column, pivot_row);
   }
 
   public get_Result(): Fraction {
-    // let test = "";
     this.result = fraction(0);
     for (let i = 0; i < this.c.length; i++) {
       for (let j = 0; j < this.basis.length; j++) {
         if (this.c[i].name == this.basis[j].name) {
           this.result = add(this.result, multiply(this.c[i].value, this.b[j]));
-          // test += `${this.c[i].name} ${this.c[i].value} * ${
-          //   this.b[j]
-          // } = ${multiply(this.c[i].value, this.b[j])} `;
         }
       }
     }
-    // this.saves.push(test + "|||  " + this.result.toString());
+
     return this.result;
   }
 
@@ -565,9 +546,6 @@ class SimplexTable {
         ) {
           solution.push(`x${i + 1}=` + this.b[j]);
         }
-        // else {
-        //   solution.push(`x${i}=0`);
-        // }
       }
     }
     this.saves.push(

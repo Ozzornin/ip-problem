@@ -55,12 +55,6 @@ export class FractionNum {
   }
 
   toString(): string {
-    // const config: ConfigOptions = {
-    //   number: "Fraction",
-    // };
-
-    // // create a mathjs instance with everything included
-    // const math = create(all, config);
     return `${this._name} = ${this._value}`;
   }
 }
